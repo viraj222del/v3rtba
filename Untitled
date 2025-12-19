@@ -1,0 +1,97 @@
+import argparse
+import os
+import shutil
+import tempfile
+
+from repo_cloner import clone_repository
+from static_analyzer import analyze_static_metrics
+from git_history_analyzer import analyze_git_history
+from dependency_analyzer import analyze_dependencies
+from metrics_calculator import compute_advanced_metrics
+from report_generator import generate_cli_report
+
+def main():
+    """Main function to run the GitDebtAnalyzer CLI tool."""
+    parser = argparse.ArgumentParser(
+        description="GitDebtAnalyzer: Assess technical debt in a GitHub repository.",
+        epilog="Example: python git_debt_analyzer.py --repo-url https://github.com/user/repo"
+    )
+    parser.add_argument(
+        "--repo-url",
+        required=True,
+        help="GitHub repository URL to analyze."
+    )
+    args = parser.parse_args()
+    repo_url = args.repo_url
+    
+    # 1. Input: Clone the repository
+    print(f"🔄 Cloning repository: {repo_url}...")
+    temp_dir = tempfile.mkdtemp(prefix='gitdebt_')
+    
+    try:
+        repo_path = clone_repository(repo_url, temp_dir)
+        print("✅ Cloning complete.")
+    except Exception as e:
+        print(f"❌ Error cloning repository: {e}")
+        shutil.rmtree(temp_dir)
+        return
+
+    all_file_data = {}
+    
+    # Identify supported source files (.py, .js, .html, .css)
+    supported_extensions = ('.py', '.js', '.html', '.css')
+    source_files = []
+    for root, _, files in os.walk(repo_path):
+        for file in files:
+            if file.endswith(supported_extensions):
+                source_files.append(os.path.join(root, file))
+
+    if not source_files:
+        print("⚠️ No supported source files found (.py, .js, .html, .css). Exiting.")
+        shutil.rmtree(temp_dir)
+        return
+
+    # 2. Analysis Step 1: Static Code Analysis (LOC, Complexity, Nesting)
+    print("🔬 Running static code analysis...")
+    static_metrics = analyze_static_metrics(repo_path, source_files)
+    all_file_data.update(static_metrics)
+    
+    # Get absolute paths of files that were actually analyzed (LOC > 0)
+    analyzed_abs_paths = [
+        os.path.join(repo_path, rel_path) 
+        for rel_path, data in all_file_data.items() 
+        if data.get('loc', 0) > 0
+    ]
+
+    # 2. Analysis Step 2: Git History Analysis (Churn, Authorship, Bug Fixes)
+    print("🕰️ Analyzing Git history...")
+    history_metrics = analyze_git_history(repo_path, analyzed_abs_paths)
+    
+    # Merge history metrics into all_file_data
+    for file_path, metrics in history_metrics.items():
+        if file_path in all_file_data:
+            all_file_data[file_path].update(metrics)
+        else:
+            all_file_data[file_path] = metrics 
+
+    # 2. Analysis Step 3: Dependency Analysis (Fan-in/Fan-out)
+    print("🔗 Analyzing file dependencies...")
+    analyze_dependencies(repo_path, all_file_data)
+            
+    # 2. Analysis Step 4: Compute Advanced Metrics
+    print("📊 Computing Risk Scores and Ownership Entropy...")
+    compute_advanced_metrics(all_file_data)
+
+    # 3. Output: Generate Report
+    print("\n" + "="*80)
+    print("          🏆 GIT DEBT ANALYZER REPORT 🏆")
+    print("="*80)
+    generate_cli_report(repo_url, all_file_data)
+    print("="*80)
+    
+    # Cleanup
+    shutil.rmtree(temp_dir)
+    print(f"\n🗑️ Cleaned up temporary directory: {temp_dir}")
+    
+if __name__ == "__main__":
+    main()

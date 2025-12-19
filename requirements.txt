@@ -1,0 +1,11 @@
+streamlit
+GitPython
+reportlab
+pandas
+altair
+pyyaml
+matplotlib
+numpy
+colorama
+statistics
+google-genai
